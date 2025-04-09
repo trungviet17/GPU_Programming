@@ -299,7 +299,7 @@ std::tuple<int, int, int>parsedCmdLineArgsTuple = parseCmdLineArgs(argc, argv);
   cudaEventRecord( start, 0 );
 
   // T, BM, BN, BK, TM, TN, WM, WN, WNITER
-  executeKernel<float, 128, 128, 16, 8, 4, 64, 64, 4>(d_a, d_b, d_c, M, N, K);
+  executeKernel<float, 64, 128, 16, 4, 4, 32, 64, 2>(d_a, d_b, d_c, M, N, K);
 
   cudaEventRecord( stop, 0 );
   cudaEventSynchronize( stop );
