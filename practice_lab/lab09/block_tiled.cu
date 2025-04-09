@@ -189,7 +189,6 @@ int main(int argc, char *argv[]) {
   cudaEventCreate(&stop);
 
   cudaEventRecord( start, 0 );
-  executeKernel<float, 16, 16, 16>(d_a, d_b, d_c, M, N, K);
   executeKernel<float, 32, 32, 32>(d_a, d_b, d_c, M, N, K);
 
   cudaEventRecord( stop, 0 );

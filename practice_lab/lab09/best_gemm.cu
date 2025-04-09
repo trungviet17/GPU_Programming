@@ -22,6 +22,7 @@ __host__ void verifyResult(T *h_a, T *h_b, T *h_c, int M, int N, int K) {
 }
 
 // BM = 128, BN = 128, BK = 8, TM = 8, TN = 8
+
 template<typename T, size_t BM, size_t BN, size_t BK, size_t TM, size_t TN>
 __global__ void gemm_kernel(T* A, T* B, T* C, size_t M, size_t N, size_t K) {
   const uint totalResultsBlocktile = BM * BN;
@@ -35,9 +36,9 @@ __global__ void gemm_kernel(T* A, T* B, T* C, size_t M, size_t N, size_t K) {
   const int threadCol = threadIdx.x % (BN / TN);
   const int threadRow = threadIdx.x / (BN / TN);
 
-  // allocate space for the current blocktile in smem
-  __shared__ float As[BM * BK];
-  __shared__ float Bs[BK * BN];
+  // allocate space for the current blocktile in smem - double buffers
+  __shared__ float As[2][BM * BK];
+  __shared__ float Bs[2][BK * BN];
 
   // Move blocktile to beginning of A's row and B's column
   A += blockIdx.y * BM * K;
@@ -57,34 +58,49 @@ __global__ void gemm_kernel(T* A, T* B, T* C, size_t M, size_t N, size_t K) {
   // register caches for As and Bs
   float regM[TM] = {0.0};
   float regN[TN] = {0.0};
+  
+  // Initialize ping-pong buffer index
+  uint bufferIdx = 0;
+  
+  // Pre-load the first tile before entering the main loop
+  if (K >= BK) {
+    reinterpret_cast<float4 *>(&As[bufferIdx][innerRowA * BK + innerColA * 4])[0] =
+        reinterpret_cast<float4 *>(&A[innerRowA * K + innerColA * 4])[0];
+
+    reinterpret_cast<float4 *>(&Bs[bufferIdx][innerRowB * BN + innerColB * 4])[0] =
+        reinterpret_cast<float4 *>(&B[innerRowB * N + innerColB * 4])[0];
+  }
+  
+  // Advance pointers for next tile
+  A += BK;     // move BK columns to right
+  B += BK * N; // move BK rows down
+  
+  __syncthreads();
 
   // outer-most loop over block tiles
   for (uint bkIdx = 0; bkIdx < K; bkIdx += BK) {
+    // Calculate next buffer index for double buffering
+    uint nextBufferIdx = 1 - bufferIdx;
+    
+    // Pre-load next tile if available (except for the last iteration)
+    if (bkIdx + BK < K) {
+      reinterpret_cast<float4 *>(&As[nextBufferIdx][innerRowA * BK + innerColA * 4])[0] =
+          reinterpret_cast<float4 *>(&A[innerRowA * K + innerColA * 4])[0];
 
-    // populate the SMEM caches
-    reinterpret_cast<float4 *>(&As[innerRowA * BK + innerColA * 4])[0] =
-        reinterpret_cast<float4 *>(&A[innerRowA * K + innerColA * 4])[0];
-
-    reinterpret_cast<float4 *>(&Bs[innerRowB * BN + innerColB * 4])[0] =
-        reinterpret_cast<float4 *>(&B[innerRowB * N + innerColB * 4])[0];
-
-    __syncthreads();
-  
-
-    // advance blocktile
-    A += BK;     // move BK columns to right
-    B += BK * N; // move BK rows down
-
-    // calculate per-thread results
-    // sequential reduction
+      reinterpret_cast<float4 *>(&Bs[nextBufferIdx][innerRowB * BN + innerColB * 4])[0] =
+          reinterpret_cast<float4 *>(&B[innerRowB * N + innerColB * 4])[0];
+    }
+    
+    // Compute using current buffer while loading into the other buffer
     for (uint dotIdx = 0; dotIdx < BK; ++dotIdx) {
       // block into registers
       for (uint i = 0; i < TM; ++i) {
-        regM[i] = As[(threadRow * TM + i) * BK + dotIdx];
+        regM[i] = As[bufferIdx][(threadRow * TM + i) * BK + dotIdx];
       }
       for (uint i = 0; i < TN; ++i) {
-        regN[i] = Bs[dotIdx * BN + threadCol * TN + i];
+        regN[i] = Bs[bufferIdx][dotIdx * BN + threadCol * TN + i];
       }
+      
       #pragma unroll
       for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
         #pragma unroll  
@@ -94,10 +110,18 @@ __global__ void gemm_kernel(T* A, T* B, T* C, size_t M, size_t N, size_t K) {
         }
       }
     }
+    
+    // advance blocktile
+    A += BK;     // move BK columns to right
+    B += BK * N; // move BK rows down
+    
+    // Switch buffers
+    bufferIdx = nextBufferIdx;
+    
+    // Synchronize threads before next iteration
     __syncthreads();
   }
 
-    
   // write out the results
   for (uint resIdxM = 0; resIdxM < TM; resIdxM+=1) {
     for (uint resIdxN = 0; resIdxN < TN; resIdxN+=4) {
@@ -115,9 +139,9 @@ __global__ void gemm_kernel(T* A, T* B, T* C, size_t M, size_t N, size_t K) {
           tmp;
     }
   }
-
-
 }
+
+
 
 template<typename T>
 __host__ void copyFromHostToDevice(T* h_a, T* h_b, T* d_a, T* d_b, size_t M, size_t N , size_t K) {
