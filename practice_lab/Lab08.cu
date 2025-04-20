@@ -1,73 +1,50 @@
 #include<iostream>
 #include<cuda_runtime.h>
 
+#define THREADPERBLOCK 256
+
 
 
 __global__ void dotProductKernel(int* A, int* B, int* C, int N) {
-
-    __shared__ int cache[256];
-    int tid = threadIdx.x;
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    int temp = 0; 
-    if (tid < N) {
-        temp = A[i] * B[i];
-    }
-
-    cache[tid] = temp; 
-    __syncthreads();
+    __shared__ int sdata[THREADPERBLOCK];
 
 
-    for (int stride = blockDim.x /2; stride > 0; stride >>= 1) {
-        if (tid < stride) {
-            cache[tid] += cache[tid + stride];
-        }
-        __syncthreads();
-    }
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (tid == 0) {
-        atomicAdd(C, cache[0]);
-    }
+    for (int i = )
+
+
 }
 
 
 void runDotProduct(int N) {
+    float * h_a, *h_b, *h_c; 
+    float *d_a, *d_b, *d_c; z
 
-    int * h_A, * h_B;
-    int * d_A, * d_B, *d_C;
-    size_t size = N * sizeof(int);
+    size_t size = N * sizeof(float);
 
-    h_A = new int[N];
-    h_B = new int[N];
-    int h_C = 0; 
+    cudaMallocHost((void**)&h_a, size);
+    cudaMallocHost((void**)&h_b, size);
+    cudaMallocHost((void**)&h_c, size);
 
-    for(int i = 0; i < N; i++) {
-        h_A[i] = i;
-        h_B[i] = 2 * i;
+
+    cudaHostGetDevicePointer((void**)&d_a, h_a, 0);
+    cudaHostGetDevicePointer((void**)&d_b, h_b, 0);
+    cudaHostGetDevicePointer((void**)&d_c, h_c, 0);
+
+    for (int i = 0; i < N; i++) {
+        h_a[i] = static_cast<float>(i);
+        h_b[i] = static_cast<float>(i);
     }
 
-    cudaMalloc((void**)&d_A, size);
-    cudaMalloc((void**)&d_B, size);
-    cudaMalloc((void**)&d_C, sizeof(int));
-    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_C, &h_C, sizeof(int), cudaMemcpyHostToDevice);
 
-
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
-    dotProductKernel<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
+    int BLOCKPERGRID = (N + THREADPERBLOCK - 1) / THREADPERBLOCK;
+    dotProductKernel<<<BLOCKPERGRID, THREADPERBLOCK>>>(d_a, d_b, d_c, N);
     cudaDeviceSynchronize();
 
-    cudaMemcpy(&h_C, d_C, sizeof(int), cudaMemcpyDeviceToHost);
-    std::cout << "Dot product result: " << h_C << std::endl;
-    delete[] h_A;
-    delete[] h_B;
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
-    cudaDeviceReset();
-    std::cout << "CUDA device reset." << std::endl;
+    
+
+
 }
 
 

@@ -3,9 +3,9 @@
 
 
 __global__ void vectorAdd(int* A, int* B, int* C, int N) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < N) {
-        C[i] = A[i] + B[i];
+    int i = blockIdx.x * blockDim.x + threadIdx.x; 
+    if (i < N) { 
+        C[i] = A[i] + B[i]; 
     }
 
 }
@@ -14,55 +14,56 @@ __global__ void vectorAdd(int* A, int* B, int* C, int N) {
 
 void runVectorAdd(int N) {
 
-    std::cout << "Running vector addition with N = " << N << std::endl;
-
-    size_t size = N * sizeof(int);
-    int* h_A, *h_B, *h_C;
-    int* d_A, *d_B, *d_C;
-    
-
-    // 
-    cudaMallocHost((void**)&h_A, size, cudaHostAllocMapped);
-    cudaMallocHost((void**)&h_B, size, cudaHostAllocMapped);
-    cudaMallocHost((void**)&h_C, size, cudaHostAllocMapped);
+    size_t size = N * sizeof(int); 
+    int *h_a, *h_b, *h_c;
+    int *d_a, *d_b, *d_c;
 
 
-    cudaHostGetDevicePointer((void**)&d_A, (void*)h_A, 0);
-    cudaHostGetDevicePointer((void**)&d_B, (void*)h_B, 0);
-    cudaHostGetDevicePointer((void**)&d_C, (void*)h_C, 0);
+    cudaMallocHost((void**)&h_a, size);
+    cudaMallocHost((void**)&h_b, size);
+    cudaMallocHost((void**)&h_c, size);
+
+    cudaHostGetDevicePointer((void**)&d_a, h_a, 0);
+    cudaHostGetDevicePointer((void**)&d_b, h_b, 0);
+    cudaHostGetDevicePointer((void**)&d_c, h_c, 0);
 
 
-    for (int i = 0; i < N; i++) {
-        h_A[i] = i;
-        h_B[i] = 2 * i;
+    h_a = (int*)malloc(size);
+    h_b = (int*)malloc(size);
+    h_c = (int*)malloc(size);
+
+    for (int i = 0; i < N; i++ ) {
+        h_a[i] = i;
+        h_b[i] = i;
     }
-    
+
+
     int threadsPerBlock = 256;
     int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
-    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
+    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_a, d_b, d_c, N);
     cudaDeviceSynchronize();
 
+
+    
     for (int i = 0; i < N; i++) {
-        if (h_C[i] != h_A[i] + h_B[i]) {
-            std::cerr << "Error at index " << i << ": " << h_C[i] << " != " << h_A[i] + h_B[i] << std::endl;
+        if (h_c[i] != h_a[i] + h_b[i]) {
+            std::cerr << "Error at index " << i << ": " << h_c[i] << " != " << h_a[i] + h_b[i] << std::endl;
             break;
         }
     }
-    std::cout << "Vector addition completed successfully!" << std::endl;
-    
-    cudaFreeHost(h_A);
-    cudaFreeHost(h_B);
-    cudaFreeHost(h_C);
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
-    cudaDeviceReset();
-    std::cout << "CUDA device reset." << std::endl;
+    std::cout << "Vector addition completed successfully." << std::endl;
+
+    cudaFree(d_a);
+    cudaFree(d_b);
+    cudaFree(d_c);
+    free(h_a);
+    free(h_b);
+    free(h_c);
 
 }
 
 int main() {
-    int N = 1024 * 1024; 
+    int N = 10 * 10; 
     runVectorAdd(N);
     return 0;
 }
