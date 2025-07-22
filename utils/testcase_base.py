@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 from dataclasses import dataclass, asdict, field 
 import json 
 import torch 
+from abc import abstractmethod
 
 
 @dataclass
@@ -64,7 +65,7 @@ class BaseTestCaseManager:
             self.add_test_case(test_case)
 
 
-        
+    @abstractmethod
     def generate_test_case(self, input_shape: tuple, output_shape: tuple, metadata: Dict[str, Any] = None) -> TestCase:
         input_data = torch.rand(*input_shape, device = "cuda" if torch.cuda.is_available() else "cpu")
         output_data = torch.rand(*output_shape, device = "cuda" if torch.cuda.is_available() else "cpu")
@@ -79,8 +80,19 @@ class BaseTestCaseManager:
         
         self.add_test_case(test_case)
         return test_case
+    
 
+    def generate_test_cases(self, input_shapes: List[tuple], output_shapes: List[tuple], metadata: Dict[str, Any] = None) -> List[TestCase]:
+        if len(input_shapes) != len(output_shapes):
+            raise ValueError("Input shapes and output shapes must have the same length")
+        
+        for input_shape, output_shape in zip(input_shapes, output_shapes):
+            test_case = self.generate_test_case(input_shape, output_shape, metadata)
+            self.test_cases.append(test_case)
 
+        
+        
+        
 
 
 if __name__ == "__main__":
