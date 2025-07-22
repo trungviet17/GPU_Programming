@@ -1,15 +1,15 @@
 import numpy as np 
 from typing import List, Dict, Any
-from pydantic import BaseModel, Field
 from dataclasses import dataclass, asdict, field 
 import json 
+import torch 
 
 
 @dataclass
 class TestCase:
     name: str = ""
-    input: np.ndarray = field(default_factory=lambda: np.array([]))
-    output: np.ndarray = field(default_factory=lambda: np.array([]))
+    input: torch.Tensor = field(default_factory=lambda: np.array([]))
+    output: torch.Tensor = field(default_factory=lambda: np.array([]))
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __str__(self):
@@ -41,9 +41,9 @@ class BaseTestCaseManager:
             data['output'] = test_case.output.tolist()
             test_case_data.append(data)
         
-        np.save(file_path, test_case_data, allow_pickle=True)
+        torch.save(test_case_data, file_path)
 
-        json_file_path = file_path.replace('.npy', '.json')
+        json_file_path = file_path.replace('.pt', '.json')
         with open(json_file_path, 'w', encoding = "utf-8") as json_file:
             json.dump(test_case_data, json_file, indent=4)
 
@@ -52,13 +52,13 @@ class BaseTestCaseManager:
 
     def load_test_cases(self, file_path: str): 
         
-        test_case_data = np.load(file_path, allow_pickle=True)
+        test_case_data = torch.load(file_path)
 
         for data in test_case_data:
             test_case = TestCase(
                 name=data['name'],
-                input=np.array(data['input']),
-                output=np.array(data['output']),
+                input=torch.tensor(data['input']),
+                output=torch.tensor(data['output']),
                 metadata=data.get('metadata', {})
             )
             self.add_test_case(test_case)
@@ -66,8 +66,8 @@ class BaseTestCaseManager:
 
         
     def generate_test_case(self, input_shape: tuple, output_shape: tuple, metadata: Dict[str, Any] = None) -> TestCase:
-        input_data = np.random.rand(*input_shape)
-        output_data = np.random.rand(*output_shape)
+        input_data = torch.rand(*input_shape, device = "cuda" if torch.cuda.is_available() else "cpu")
+        output_data = torch.rand(*output_shape, device = "cuda" if torch.cuda.is_available() else "cpu")
         metadata = metadata or {}
         
         test_case = TestCase(
@@ -87,11 +87,11 @@ if __name__ == "__main__":
     manager = BaseTestCaseManager()
     test_case = manager.generate_test_case((3, 3), (1, 3), {"description": "Sample test case"})
     print(test_case)
-    
-    manager.save_test_cases("test_cases.npy")
-    
+
+    manager.save_test_cases("test_cases.pt")
+
     new_manager = BaseTestCaseManager()
-    new_manager.load_test_cases("test_cases.npy")
+    new_manager.load_test_cases("test_cases.pt")
     print(new_manager.get_test_cases())  
     
     
