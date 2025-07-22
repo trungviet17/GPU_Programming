@@ -1,24 +1,25 @@
 import numpy as np 
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
+from dataclasses import dataclass, asdict, field 
 import json 
 
 
-class TestCase(BaseModel):
-    name: str = Field(default="", description="Name of the test case")
-    input: np.ndarray = Field(default=np.ndarray([]), description="Input data for the test case")
-    output: np.ndarray = Field(default=np.ndarray([]), description="Expected output data for the test case")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata for the test case") 
+@dataclass
+class TestCase:
+    name: str = ""
+    input: np.ndarray = field(default_factory=lambda: np.array([]))
+    output: np.ndarray = field(default_factory=lambda: np.array([]))
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
-
-    def __str__(self): 
+    def __str__(self):
         return f"TestCase(input_shape={self.input.shape}, output_shape={self.output.shape}, metadata={self.metadata})"
-    
+
 
 class BaseTestCaseManager: 
 
     def __init__(self): 
-
+        self.name = "Base"
         self.test_cases : List[TestCase] = []
     
     def add_test_case(self, test_case: TestCase):
@@ -32,17 +33,37 @@ class BaseTestCaseManager:
 
     def save_test_cases(self, file_path: str):
         
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump([test_case.model_dump() for test_case in self.test_cases], f, ensure_ascii=False, indent=4)
+        test_case_data = []
 
-        print(f"Test cases saved to {file_path}")
+        for test_case in self.test_cases:
+            data = asdict(test_case)
+            data['input'] = test_case.input.tolist()  
+            data['output'] = test_case.output.tolist()
+            test_case_data.append(data)
+        
+        np.save(file_path, test_case_data, allow_pickle=True)
+
+        json_file_path = file_path.replace('.npy', '.json')
+        with open(json_file_path, 'w', encoding = "utf-8") as json_file:
+            json.dump(test_case_data, json_file, indent=4)
+
+        print(f"Test cases saved to {file_path} and {json_file_path}")
 
 
     def load_test_cases(self, file_path: str): 
         
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            self.test_cases = [TestCase(**item) for item in data] if data else []
+        test_case_data = np.load(file_path, allow_pickle=True)
+
+        for data in test_case_data:
+            test_case = TestCase(
+                name=data['name'],
+                input=np.array(data['input']),
+                output=np.array(data['output']),
+                metadata=data.get('metadata', {})
+            )
+            self.add_test_case(test_case)
+
+
         
     def generate_test_case(self, input_shape: tuple, output_shape: tuple, metadata: Dict[str, Any] = None) -> TestCase:
         input_data = np.random.rand(*input_shape)
@@ -50,7 +71,7 @@ class BaseTestCaseManager:
         metadata = metadata or {}
         
         test_case = TestCase(
-            name=f"TestCase_{len(self.test_cases) + 1}",
+            name=f"TestCase_{self.name}_{len(self.test_cases) + 1}",
             input=input_data,
             output=output_data,
             metadata=metadata
@@ -60,5 +81,17 @@ class BaseTestCaseManager:
         return test_case
 
 
+
+
+if __name__ == "__main__":
+    manager = BaseTestCaseManager()
+    test_case = manager.generate_test_case((3, 3), (1, 3), {"description": "Sample test case"})
+    print(test_case)
+    
+    manager.save_test_cases("test_cases.npy")
+    
+    new_manager = BaseTestCaseManager()
+    new_manager.load_test_cases("test_cases.npy")
+    print(new_manager.get_test_cases())  
     
     
