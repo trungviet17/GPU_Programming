@@ -1,47 +1,52 @@
 #include <cuda_runtime.h>
-#include <iostream>
-#include <vector>
+
+__global__ void block_sum(float* input, float* output, int N) { 
+    extern __shared__ float partial_sum[]; 
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x; 
+    int tid = threadIdx.x; 
+
+    partial_sum[tid] = (idx < N) ? input[idx] : 0.0f;
+    __syncthreads(); 
 
 
-#define BLOCK_DIM 1024
-#define COARSE_FACTOR 4
-
-__global__ void ReduceKernel(const float *input, float *output, int N)
-{
-    __shared__ float Shared[BLOCK_DIM];
-
-    const int Tid = COARSE_FACTOR * blockDim.x * blockIdx.x + threadIdx.x;
-    const int Tx = threadIdx.x;
-
-    Shared[Tx] = 0.0f;
-    for (int i = 0; i < COARSE_FACTOR; i++)
-    {
-        if (Tid + blockDim.x * i < N)
-        {
-            Shared[Tx] += input[Tid + blockDim.x * i];
-        }
-    }
-    __syncthreads();
-
-    for (int Stride = blockDim.x / 2; Stride > 0; Stride /= 2)
-    {
-        if (Tx < Stride)
-        {
-            Shared[Tx] += Shared[Tx + Stride];
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            partial_sum[tid] += partial_sum[tid + s];
         }
         __syncthreads();
     }
 
-    if (Tx == 0)
-    {
-        atomicAdd(output, Shared[0]);
+    if (tid == 0) {
+        output[blockIdx.x] = partial_sum[0]; 
     }
 }
 
 
+// input, output are device pointers
 extern "C" void solve(const float* input, float* output, int N) {  
+    int threadsPerBlock = 1024; 
+    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock; 
+    size_t sharedMemBytes = threadsPerBlock * sizeof(float);
 
-    const int BlockDim = BLOCK_DIM;
-    const int GridDim = (N + BlockDim - 1) / BlockDim;
-    ReduceKernel<<<GridDim, BlockDim>>>(input, output, N);
+    float *input_d; 
+    cudaMalloc((void**)&input_d, sizeof(float) * N); 
+    cudaMemcpy(input_d, input, sizeof(float) * N, cudaMemcpyHostToDevice); 
+
+    float *temp_output_h = (float*)malloc(sizeof(float) * blocksPerGrid); 
+    float *temp_output_d; 
+    cudaMalloc((void**)&temp_output_d, sizeof(float) * blocksPerGrid); 
+
+    block_sum<<<blocksPerGrid, threadsPerBlock, sharedMemBytes>>>(input_d, temp_output_d, N);
+
+    cudaDeviceSynchronize(); 
+    cudaMemcpy(temp_output_h, temp_output_d, sizeof(float) * blocksPerGrid, cudaMemcpyDeviceToHost); 
+
+    float sum = 0.0f; 
+    for (int i = 0; i < blocksPerGrid; ++i) sum += temp_output_h[i]; 
+
+    cudaMemcpy(output, &sum, sizeof(float), cudaMemcpyHostToDevice); 
+
+    cudaFree(temp_output_d); 
+    free(temp_output_h); 
 }
