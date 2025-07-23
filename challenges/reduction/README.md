@@ -101,3 +101,43 @@ __global__ void reduce1(int *g_in_data, int *g_out_data){
     }
 }
 ```
+
+## Thuật toán 2: Sequential Addressing 
+
+**Cải tiển** : 
+- Thay vì shared memory phải truy cập tới các khoảng khác nhau như thuật toán 1 (xem các mũi tên đi thẳng)
+
+<p align="center">
+  <img src="res/reduct-2.png" alt="Tree-based reduction">
+</p>
+
+
+```cpp 
+__global__ void reduce2(int* input, int* output) { 
+
+    extern __shared__ int  sdata[];  // stored in the shared memory 
+
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    sdata[tid] = input[i];
+    __syncthreads();
+
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) { 
+        if (tid < s) { 
+            sdata[tid] += sdata[tid + s]; 
+        } 
+        __syncthreads(); 
+    }
+
+    if (tid == 0) { 
+        output[blockIdx.x] = sdata[0]; 
+    }
+}
+```
+
+**Vấn đề** : 
+- Thuật toán vẫn gặp vấn đề về idle (mỗi lần chỉ kích hạt được 1 nửa thread, các thread còn lại không làm gì) -> có quá nhiều thread idle trong quá trình thực thi 
+=> đặc biệt là trong vòng loop đầu tiên, lượng thread không làm gì rất lớn. 
+
+
